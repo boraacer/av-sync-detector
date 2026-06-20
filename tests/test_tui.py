@@ -1,6 +1,6 @@
 from avsync_detector.result import AlignmentResult
 from avsync_detector.live import PipeHealth
-from avsync_detector.tui import header_text, health_table, history_text, metric_table, reference_table, render_dashboard, run_tui
+from avsync_detector.tui import header_text, health_table, history_text, metric_table, render_dashboard, sanitize_reference, run_tui
 from rich.console import Console
 
 
@@ -135,23 +135,11 @@ def test_history_marks_previous_offset_stale_when_current_result_is_unknown():
     assert "latest" not in text
 
 
-def test_reference_table_shows_sanitized_source_and_output_links():
-    console = Console(record=True, width=140, color_system=None)
+def test_sanitize_reference_redacts_secret_url_parts():
+    text = sanitize_reference("https://user:secret@example.test/live/stream.m3u8?token=abc123&rendition=main")
 
-    console.print(
-        reference_table(
-            "https://user:secret@example.test/live/stream.m3u8?token=abc123&rendition=main",
-            "https://output.test/live/index.m3u8?signature=private",
-        )
-    )
-
-    text = console.export_text()
-    assert "Source" in text
-    assert "Output" in text
-    assert "https://user:<redacted>@example.test/live/stream.m3u8?token=<redacted>&rendition=<redacted>" in text
-    assert "https://output.test/live/index.m3u8?signature=<redacted>" in text
+    assert text == "https://user:<redacted>@example.test/live/stream.m3u8?token=<redacted>&rendition=<redacted>"
     assert "abc123" not in text
-    assert "private" not in text
     assert "secret" not in text
 
 
@@ -188,3 +176,4 @@ def test_dashboard_puts_references_in_top_status_panel():
     header_block = text[header_start:alignment_start]
     assert "source https://source.test/live.m3u8?token=<redacted>" in header_block
     assert "output https://output.test/live.m3u8?signature=<redacted>" in header_block
+    assert "References" not in text

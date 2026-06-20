@@ -59,8 +59,6 @@ def render_dashboard(
     panels = [
         Panel(header_text(result, runtime_s, source=source, output=output), title=title, border_style=verdict_color(result.verdict)),
     ]
-    if source is not None and output is not None:
-        panels.append(Panel(reference_table(source, output), title="References", border_style="white"))
     panels.extend(
         [
         Panel(metric_table(result), title="Alignment", border_style=verdict_color(result.verdict)),
@@ -110,15 +108,6 @@ def metric_table(result: AlignmentResult) -> Table:
     table.add_row("Video confidence", f"{result.video_confidence:.2f}")
     if result.warnings:
         table.add_row("Warnings", ", ".join(result.warnings))
-    return table
-
-
-def reference_table(source: str, output: str) -> Table:
-    table = Table(box=box.SIMPLE, expand=True)
-    table.add_column("Stream")
-    table.add_column("Reference")
-    table.add_row("Source", sanitize_reference(source))
-    table.add_row("Output", sanitize_reference(output))
     return table
 
 
