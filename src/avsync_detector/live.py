@@ -3,14 +3,14 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 import re
 
 import numpy as np
 
 from .align import estimate_alignment
-from .result import AlignmentResult, classify_offset
+from .result import AlignmentResult, classify_offset, dedupe_warnings
 
 
 @dataclass(frozen=True)
@@ -37,18 +37,21 @@ class PipeHealth:
     restarts: int = 0
     return_code: int | None = None
     error_tail: str = ""
+    total_samples: int = 0
 
 
 class Rolling1D:
     def __init__(self, max_samples: int):
         self.max_samples = max_samples
         self._data = np.empty(0, dtype=np.float32)
+        self.total_samples = 0
         self._lock = threading.Lock()
 
     def append(self, values: np.ndarray) -> None:
         if values.size == 0:
             return
         with self._lock:
+            self.total_samples += values.size
             self._data = np.concatenate([self._data, values.astype(np.float32, copy=False)])
             if self._data.size > self.max_samples:
                 self._data = self._data[-self.max_samples :]
@@ -57,17 +60,23 @@ class Rolling1D:
         with self._lock:
             return self._data.copy()
 
+    def clear(self) -> None:
+        with self._lock:
+            self._data = np.empty(0, dtype=np.float32)
+
 
 class RollingVectors:
     def __init__(self, max_rows: int, dims: int):
         self.max_rows = max_rows
         self.dims = dims
         self._data = np.empty((0, dims), dtype=np.float32)
+        self.total_rows = 0
         self._lock = threading.Lock()
 
     def append(self, value: np.ndarray) -> None:
         row = np.asarray(value, dtype=np.float32).reshape(1, self.dims)
         with self._lock:
+            self.total_rows += 1
             self._data = np.vstack([self._data, row])
             if self._data.shape[0] > self.max_rows:
                 self._data = self._data[-self.max_rows :, :]
@@ -75,6 +84,10 @@ class RollingVectors:
     def snapshot(self) -> np.ndarray:
         with self._lock:
             return self._data.copy()
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data = np.empty((0, self.dims), dtype=np.float32)
 
 
 class AVFeaturePipe:
@@ -168,6 +181,13 @@ class AVFeaturePipe:
         self._stop_event.set()
         _stop_process(self.proc)
 
+    def clear_current_window(self) -> None:
+        self.audio_buffer.clear()
+        self.video_buffer.clear()
+        self.audio_last_update = None
+        self.video_last_update = None
+        self._previous_video = None
+
     def health(self) -> list[PipeHealth]:
         running = self.proc is not None and self.proc.poll() is None
         return [
@@ -179,6 +199,7 @@ class AVFeaturePipe:
                 self.restarts,
                 self.return_code,
                 self.error_tail,
+                self.audio_buffer.total_samples,
             ),
             PipeHealth(
                 f"{self.name}_video",
@@ -188,6 +209,7 @@ class AVFeaturePipe:
                 self.restarts,
                 self.return_code,
                 self.error_tail,
+                self.video_buffer.total_rows,
             ),
         ]
 
@@ -207,6 +229,7 @@ class LiveAnalyzer:
             AVFeaturePipe("source", source, self.options),
             AVFeaturePipe("output", output, self.options),
         ]
+        self._last_restart_counts = self._restart_counts()
 
     def start(self) -> None:
         for pipe in self.pipes:
@@ -217,33 +240,35 @@ class LiveAnalyzer:
             pipe.stop()
 
     def estimate(self) -> AlignmentResult:
+        self._reset_windows_after_restart()
         source_audio = self.pipes[0].audio_buffer.snapshot()
         output_audio = self.pipes[1].audio_buffer.snapshot()
         source_video = self.pipes[0].video_buffer.snapshot()
         output_video = self.pipes[1].video_buffer.snapshot()
         min_samples = int(self.options.min_overlap_s * self.options.audio_feature_rate)
         min_frames = int(self.options.min_overlap_s * self.options.video_rate)
-        warnings: list[str] = []
+        blocking_warnings: list[str] = []
+        diagnostic_warnings: list[str] = []
         if source_audio.size < min_samples or output_audio.size < min_samples:
-            warnings.append("audio:warming_up")
+            blocking_warnings.append("audio:warming_up")
         if source_video.shape[0] < min_frames or output_video.shape[0] < min_frames:
-            warnings.append("video:warming_up")
+            blocking_warnings.append("video:warming_up")
         for item in self.health():
             if not item.running and item.samples == 0:
-                warnings.append(f"{item.name}:stopped_no_media")
-            elif item.restarts:
-                warnings.append(f"{item.name}:restarted_{item.restarts}")
-        if warnings:
+                blocking_warnings.append(f"{item.name}:stopped_no_media")
+            if item.restarts:
+                diagnostic_warnings.append(f"{item.name}:restarted_{item.restarts}")
+        if blocking_warnings:
             return classify_offset(
                 audio_latency_s=None,
                 video_latency_s=None,
                 audio_confidence=0.0,
                 video_confidence=0.0,
-                warnings=warnings,
+                warnings=blocking_warnings + diagnostic_warnings,
                 ok_ms=self.options.ok_ms,
                 warn_ms=self.options.warn_ms,
             )
-        return estimate_alignment(
+        result = estimate_alignment(
             source_audio,
             output_audio,
             source_video,
@@ -256,9 +281,23 @@ class LiveAnalyzer:
             ok_ms=self.options.ok_ms,
             warn_ms=self.options.warn_ms,
         )
+        if not diagnostic_warnings:
+            return result
+        return replace(result, warnings=dedupe_warnings(result.warnings + diagnostic_warnings))
 
     def health(self) -> list[PipeHealth]:
         return [item for pipe in self.pipes for item in pipe.health()]
+
+    def _restart_counts(self) -> tuple[int, ...]:
+        return tuple(pipe.restarts for pipe in self.pipes)
+
+    def _reset_windows_after_restart(self) -> None:
+        restart_counts = self._restart_counts()
+        if restart_counts == self._last_restart_counts:
+            return
+        for pipe in self.pipes:
+            pipe.clear_current_window()
+        self._last_restart_counts = restart_counts
 
 
 def run_live_analysis(source: str, output: str, *, duration_s: float, options: LiveOptions | None = None) -> tuple[AlignmentResult, list[PipeHealth]]:
