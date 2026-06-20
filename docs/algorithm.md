@@ -84,6 +84,8 @@ Use longer durations when:
 
 The detector is a measurement tool, not a proof engine. It can still be inconclusive on:
 
+- multi-bitrate or adaptive bitrate source/output manifests; use concrete
+  single-rendition URLs because the detector does not validate an ABR ladder
 - repeated music or repeated visual loops
 - long static scenes with no meaningful motion
 - streams with missing audio or video
@@ -91,4 +93,3 @@ The detector is a measurement tool, not a proof engine. It can still be inconclu
 - insufficient observation duration
 
 When the result is inconclusive, do not treat diagnostic latency guesses as a sync verdict.
-

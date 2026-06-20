@@ -161,6 +161,17 @@ Press `Ctrl+C` to exit.
 
 ## Important Runtime Notes
 
+This tool is for single-rendition live inputs. It does not validate
+multi-bitrate or adaptive bitrate ladders as a whole. Do not point it at an
+HLS or DASH master manifest and assume every rendition is checked; use concrete
+single-rendition source and output URLs instead.
+
+Input protocol support is whatever your installed FFmpeg build can open. In
+normal FFmpeg builds, the practical live-stream protocols are HLS over
+HTTP/HTTPS (`.m3u8` media playlists), direct HTTP/HTTPS media URLs, RTMP, RTMPS,
+RTSP, UDP, and SRT. DASH support depends on the FFmpeg build and stream format,
+but this detector still expects a single selected audio/video rendition.
+
 Let the detector run long enough for the output distribution delay. HLS
 distribution can easily be 30 seconds or more behind the source. The default
 search window is 60 seconds and the rolling RAM window is 120 seconds.
