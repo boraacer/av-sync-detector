@@ -172,12 +172,15 @@ def history_text(
     chart_width = max(8, int(chart_width))
     chart_height = max(2, int(chart_height))
     visible_offsets = _sample_history_offsets(offsets, chart_width)
+    baseline_row = chart_height // 2
     text = Text()
     for row in range(chart_height):
-        threshold = max_abs * (chart_height - row) / chart_height
         for value in visible_offsets:
-            if abs(value) >= threshold:
+            marker_rows = _offset_marker_rows(value, max_abs=max_abs, chart_height=chart_height, baseline_row=baseline_row)
+            if row in marker_rows:
                 text.append("█", style=_offset_style(value))
+            elif row == baseline_row:
+                text.append("┄", style="dim")
             else:
                 text.append(" ")
         text.append("\n")
@@ -201,6 +204,21 @@ def _sample_history_offsets(offsets: list[float], width: int) -> list[float]:
 
 def _offset_style(value: float) -> str:
     return "green" if abs(value) <= 120 else "yellow" if abs(value) <= 250 else "red"
+
+
+def _offset_marker_rows(value: float, *, max_abs: float, chart_height: int, baseline_row: int) -> set[int]:
+    if value == 0:
+        return set()
+    if value > 0:
+        span = baseline_row
+        magnitude = max(1, int(round(abs(value) / max_abs * span)))
+        start = max(0, baseline_row - magnitude)
+        return set(range(start, baseline_row))
+
+    span = chart_height - baseline_row - 1
+    magnitude = max(1, int(round(abs(value) / max_abs * span)))
+    stop = min(chart_height - 1, baseline_row + magnitude)
+    return set(range(baseline_row + 1, stop + 1))
 
 
 def _history_offset(item: float | tuple[float, float]) -> float:
