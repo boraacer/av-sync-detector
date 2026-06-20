@@ -26,6 +26,11 @@ class LiveOptions:
     rolling_window_s: float = 120.0
     ok_ms: float = 120.0
     warn_ms: float = 250.0
+    offset_stability_required: bool = False
+    offset_stability_window: int = 5
+    offset_stability_min_estimates: int = 3
+    offset_stability_tolerance_ms: float = 120.0
+    offset_hold_unknown_estimates: int = 5
 
 
 @dataclass(frozen=True)
@@ -230,6 +235,9 @@ class LiveAnalyzer:
             AVFeaturePipe("output", output, self.options),
         ]
         self._last_restart_counts = self._restart_counts()
+        self._recent_offsets_ms: list[float] = []
+        self._last_stable_result: AlignmentResult | None = None
+        self._unknown_estimates = 0
 
     def start(self) -> None:
         for pipe in self.pipes:
@@ -282,8 +290,9 @@ class LiveAnalyzer:
             warn_ms=self.options.warn_ms,
         )
         if not diagnostic_warnings:
-            return result
-        return replace(result, warnings=dedupe_warnings(result.warnings + diagnostic_warnings))
+            return self._stabilize_result(result)
+        result = replace(result, warnings=dedupe_warnings(result.warnings + diagnostic_warnings))
+        return self._stabilize_result(result)
 
     def health(self) -> list[PipeHealth]:
         return [item for pipe in self.pipes for item in pipe.health()]
@@ -298,6 +307,44 @@ class LiveAnalyzer:
         for pipe in self.pipes:
             pipe.clear_current_window()
         self._last_restart_counts = restart_counts
+        self._recent_offsets_ms.clear()
+        self._last_stable_result = None
+        self._unknown_estimates = 0
+
+    def _stabilize_result(self, result: AlignmentResult) -> AlignmentResult:
+        if not self.options.offset_stability_required:
+            return result
+        if result.av_offset_ms is None:
+            return self._hold_recent_offset(result)
+
+        window = max(1, self.options.offset_stability_window)
+        min_estimates = max(1, self.options.offset_stability_min_estimates)
+        tolerance_ms = max(0.0, self.options.offset_stability_tolerance_ms)
+        self._unknown_estimates = 0
+        self._recent_offsets_ms.append(float(result.av_offset_ms))
+        self._recent_offsets_ms = self._recent_offsets_ms[-window:]
+        if len(self._recent_offsets_ms) < min_estimates:
+            return _unstable_offset_result(result)
+
+        offsets = np.asarray(self._recent_offsets_ms, dtype=np.float32)
+        median_offset_ms = float(np.median(offsets))
+        agreeing = int(np.count_nonzero(np.abs(offsets - median_offset_ms) <= tolerance_ms))
+        current_agrees = abs(float(result.av_offset_ms) - median_offset_ms) <= tolerance_ms
+        if agreeing >= min_estimates and current_agrees:
+            stable = _replace_offset(result, median_offset_ms, ok_ms=self.options.ok_ms, warn_ms=self.options.warn_ms)
+            self._last_stable_result = stable
+            return stable
+        return _unstable_offset_result(result)
+
+    def _hold_recent_offset(self, result: AlignmentResult) -> AlignmentResult:
+        if self._last_stable_result is None:
+            return result
+        self._unknown_estimates += 1
+        if self._unknown_estimates > max(0, self.options.offset_hold_unknown_estimates):
+            self._recent_offsets_ms.clear()
+            self._last_stable_result = None
+            return result
+        return _held_offset_result(self._last_stable_result, result)
 
 
 def run_live_analysis(source: str, output: str, *, duration_s: float, options: LiveOptions | None = None) -> tuple[AlignmentResult, list[PipeHealth]]:
@@ -341,6 +388,39 @@ def build_av_ffmpeg_cmd(url: str, options: LiveOptions, *, audio_fd: int, video_
     ]
 
 
+def _unstable_offset_result(result: AlignmentResult) -> AlignmentResult:
+    return replace(
+        result,
+        verdict="inconclusive",
+        direction="unknown",
+        av_offset_ms=None,
+        warnings=dedupe_warnings(result.warnings + ["unstable_offset", "unreliable_offset"]),
+    )
+
+
+def _held_offset_result(stable: AlignmentResult, current: AlignmentResult) -> AlignmentResult:
+    return replace(
+        stable,
+        verdict="inconclusive",
+        warnings=dedupe_warnings(current.warnings + stable.warnings + ["held_offset"]),
+    )
+
+
+def _replace_offset(result: AlignmentResult, offset_ms: float, *, ok_ms: float, warn_ms: float) -> AlignmentResult:
+    rounded = round(offset_ms, 3)
+    abs_offset = abs(rounded)
+    if abs_offset <= ok_ms:
+        verdict = "aligned"
+        direction = "aligned"
+    elif abs_offset <= warn_ms:
+        verdict = "warning"
+        direction = "audio_ahead" if rounded > 0 else "video_ahead"
+    else:
+        verdict = "out_of_sync"
+        direction = "audio_ahead" if rounded > 0 else "video_ahead"
+    return replace(result, verdict=verdict, direction=direction, av_offset_ms=rounded)
+
+
 def audio_samples_to_features(samples: np.ndarray, *, samples_per_feature: int) -> np.ndarray:
     values = np.asarray(samples, dtype=np.float32).reshape(-1)
     n = (values.size // samples_per_feature) * samples_per_feature
@@ -354,7 +434,7 @@ def audio_samples_to_features(samples: np.ndarray, *, samples_per_feature: int) 
 
 
 def video_feature_dimensions(*, rows: int = 9, cols: int = 12) -> int:
-    return rows * cols * 3
+    return rows * cols * 6
 
 
 def video_frame_to_feature(
@@ -369,23 +449,38 @@ def video_frame_to_feature(
     current = np.asarray(frame, dtype=np.float32).reshape(height, width)
     prior = current if previous is None else np.asarray(previous, dtype=np.float32).reshape(height, width)
     diff = current - prior
-    values: list[float] = []
+    motion_values: list[float] = []
+    appearance_values: list[float] = []
     for row in range(rows):
         y0 = round(row * height / rows)
         y1 = round((row + 1) * height / rows)
         for col in range(cols):
             x0 = round(col * width / cols)
             x1 = round((col + 1) * width / cols)
-            block = diff[y0:y1, x0:x1]
-            abs_block = np.abs(block)
-            values.extend(
+            diff_block = diff[y0:y1, x0:x1]
+            abs_block = np.abs(diff_block)
+            motion_values.extend(
                 [
                     float(np.mean(abs_block)),
                     float(np.percentile(abs_block, 90)),
-                    float(np.mean(block)),
+                    float(np.mean(diff_block)),
                 ]
             )
-    return _robust_normalize(np.asarray(values, dtype=np.float32)), current.reshape(-1).copy()
+            current_block = current[y0:y1, x0:x1]
+            appearance_values.extend(
+                [
+                    float(np.mean(current_block)),
+                    _mean_abs_diff(current_block, axis=1),
+                    _mean_abs_diff(current_block, axis=0),
+                ]
+            )
+    feature = np.concatenate(
+        [
+            _robust_normalize(np.asarray(motion_values, dtype=np.float32)),
+            _robust_normalize(np.asarray(appearance_values, dtype=np.float32)),
+        ]
+    )
+    return feature.astype(np.float32, copy=False), current.reshape(-1).copy()
 
 
 def normalize_url_arg(url: str) -> str:
@@ -402,6 +497,12 @@ def _robust_normalize(values: np.ndarray) -> np.ndarray:
     if mad < 1e-9:
         return arr - med
     return np.clip((arr - med) / (mad * 6.0), -3.0, 3.0).astype(np.float32)
+
+
+def _mean_abs_diff(values: np.ndarray, *, axis: int) -> float:
+    if values.shape[axis] < 2:
+        return 0.0
+    return float(np.mean(np.abs(np.diff(values, axis=axis))))
 
 
 def _stop_process(proc: subprocess.Popen[bytes] | None) -> None:

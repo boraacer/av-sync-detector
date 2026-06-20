@@ -1,6 +1,9 @@
 import numpy as np
 
+import pytest
+
 from avsync_detector.align import estimate_alignment, estimate_delay_1d, estimate_delay_vectors
+import avsync_detector.align as align
 from avsync_detector.result import classify_offset
 
 
@@ -185,3 +188,39 @@ def test_delay_estimate_rejects_match_on_min_latency_boundary():
     assert estimate.delay_s == 0
     assert estimate.confidence == 0
     assert "min_latency_boundary" in estimate.warnings
+
+
+def test_vector_delay_search_uses_specialized_path(monkeypatch):
+    source = vector_features(240, dims=24)
+    output = delayed_vectors(source, 37, noise=0.01)
+
+    def fail_generic_vector_score(*args, **kwargs):
+        raise AssertionError("generic vector scorer should not be used")
+
+    monkeypatch.setattr(align, "_score_vectors", fail_generic_vector_score)
+
+    estimate = estimate_delay_vectors(
+        source,
+        output,
+        rate_hz=10,
+        min_latency_s=0,
+        max_latency_s=6,
+        min_overlap_s=8,
+    )
+
+    assert abs(estimate.delay_s - 3.7) <= 0.1
+    assert estimate.confidence >= 0.6
+
+
+def test_fast_vector_score_matches_reference_score():
+    rng = np.random.default_rng(99)
+    source = rng.normal(0, 1, (120, 32)).astype(np.float32)
+    output = rng.normal(0, 1, (120, 32)).astype(np.float32)
+    lag = 17
+    overlap = 83
+
+    stats = align._VectorSearchStats(source, output)
+    fast_score = align._score_vectors_from_stats(stats, lag=lag, overlap=overlap)
+    reference_score = align._score_vectors(source[:overlap], output[lag : lag + overlap])
+
+    assert fast_score == pytest.approx(reference_score, abs=1e-6)

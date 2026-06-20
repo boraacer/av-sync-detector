@@ -31,9 +31,12 @@ Video is converted to localized block-motion fingerprints:
 - compare each frame with the previous frame
 - divide the frame into a grid
 - record block-level motion statistics
+- record block-level appearance and gradient statistics
 - robustly normalize each feature vector
 
 This is designed for live broadcast checks, especially static talking-head shots where the useful signal may be a small moving mouth or face area.
+
+The video matcher scores temporal agreement per feature dimension. It subtracts the mean of each feature dimension over the overlap before correlation, then lets the strongest local dimensions vote. This keeps sparse mouth motion useful and helps slow pan/Ken Burns-style shots where frame-to-frame motion alone creates broad, ambiguous peaks. Static appearance by itself should not produce high confidence because features with no temporal agreement do not create a stable local vote.
 
 ## Delay Search
 
@@ -58,6 +61,8 @@ Large source-to-output latency is acceptable when audio and video share the same
 The detector reports `inconclusive` rather than a concrete A/V offset when evidence is weak. Low-confidence latency guesses are retained as diagnostics, but the final offset remains unknown.
 
 Boundary matches are treated as unreliable. If the best match occurs at the minimum or maximum searched latency, the search probably clipped the true match or saw a coincidental pattern. In that case, increase `--duration`, `--window`, or `--max-latency`.
+
+The TUI also requires repeated concrete offsets to agree before it publishes the latest A/V offset. If recent estimates are volatile, the current result remains `inconclusive` with an `unstable_offset` warning instead of smoothing a possibly wrong number. Brief source/output cutouts are bridged with a bounded `held_offset` result so one weak window does not reset the display or stability window. Longer runs of unknown estimates still expire the held value and report the current offset as unknown. JSON mode keeps one-shot behavior so scripted checks can still report the single best result after the requested observation duration.
 
 ## Practical Settings
 

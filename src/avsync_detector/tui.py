@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 from rich import box
@@ -14,8 +15,9 @@ from .live import LiveAnalyzer, LiveOptions, PipeHealth
 from .result import AlignmentResult
 
 
-def run_tui(source: str, output: str, *, label: str | None, options: LiveOptions, refresh_s: float) -> None:
-    analyzer = LiveAnalyzer(source, output, options)
+def run_tui(source: str, output: str, *, label: str | None, options: LiveOptions | None, refresh_s: float) -> None:
+    analyzer_options = replace(options or LiveOptions(), offset_stability_required=True)
+    analyzer = LiveAnalyzer(source, output, analyzer_options)
     history: list[tuple[float, float]] = []
     analyzer.start()
     started = time.time()
