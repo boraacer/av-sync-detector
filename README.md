@@ -111,13 +111,13 @@ pytest -q
 After you publish the repo, users can install from GitHub:
 
 ```bash
-python -m pip install "git+https://github.com/<owner>/av-sync-detector.git"
+python -m pip install "git+https://github.com/boraacer/av-sync-detector.git"
 ```
 
 For isolated command-line installs, `pipx` also works:
 
 ```bash
-pipx install "git+https://github.com/<owner>/av-sync-detector.git"
+pipx install "git+https://github.com/boraacer/av-sync-detector.git"
 ```
 
 ## Usage
