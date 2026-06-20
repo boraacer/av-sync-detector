@@ -1,6 +1,6 @@
 from avsync_detector.result import AlignmentResult
 from avsync_detector.live import PipeHealth
-from avsync_detector.tui import header_text, health_table, history_text, metric_table, run_tui
+from avsync_detector.tui import header_text, health_table, history_text, metric_table, reference_table, run_tui
 from rich.console import Console
 
 
@@ -133,3 +133,23 @@ def test_history_marks_previous_offset_stale_when_current_result_is_unknown():
     assert "1091s ago" in text
     assert "current unknown" in text
     assert "latest" not in text
+
+
+def test_reference_table_shows_sanitized_source_and_output_links():
+    console = Console(record=True, width=140, color_system=None)
+
+    console.print(
+        reference_table(
+            "https://user:secret@example.test/live/stream.m3u8?token=abc123&rendition=main",
+            "https://output.test/live/index.m3u8?signature=private",
+        )
+    )
+
+    text = console.export_text()
+    assert "Source" in text
+    assert "Output" in text
+    assert "https://user:<redacted>@example.test/live/stream.m3u8?token=<redacted>&rendition=<redacted>" in text
+    assert "https://output.test/live/index.m3u8?signature=<redacted>" in text
+    assert "abc123" not in text
+    assert "private" not in text
+    assert "secret" not in text

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 from rich import box
 from rich.console import Group
@@ -26,7 +27,17 @@ def run_tui(source: str, output: str, *, label: str | None, options: LiveOptions
                 if result.av_offset_ms is not None:
                     history.append((result.av_offset_ms, runtime_s))
                     history = history[-60:]
-                live.update(render_dashboard(result, analyzer.health(), label=label, runtime_s=runtime_s, history=history))
+                live.update(
+                    render_dashboard(
+                        result,
+                        analyzer.health(),
+                        label=label,
+                        runtime_s=runtime_s,
+                        history=history,
+                        source=source,
+                        output=output,
+                    )
+                )
                 time.sleep(refresh_s)
     except KeyboardInterrupt:
         return
@@ -41,14 +52,23 @@ def render_dashboard(
     label: str | None,
     runtime_s: float,
     history: list[tuple[float, float]],
+    source: str | None = None,
+    output: str | None = None,
 ) -> Group:
     title = "Live AV Sync Detector" if not label else f"Live AV Sync Detector - {label}"
-    return Group(
+    panels = [
         Panel(header_text(result, runtime_s), title=title, border_style=verdict_color(result.verdict)),
+    ]
+    if source is not None and output is not None:
+        panels.append(Panel(reference_table(source, output), title="References", border_style="white"))
+    panels.extend(
+        [
         Panel(metric_table(result), title="Alignment", border_style=verdict_color(result.verdict)),
         Panel(history_text(history, current_offset_ms=result.av_offset_ms, runtime_s=runtime_s), title="Offset History", border_style="cyan"),
         Panel(health_table(health), title="Decode Health", border_style="blue"),
+        ]
     )
+    return Group(*panels)
 
 
 def header_text(result: AlignmentResult, runtime_s: float) -> Text:
@@ -84,6 +104,30 @@ def metric_table(result: AlignmentResult) -> Table:
     if result.warnings:
         table.add_row("Warnings", ", ".join(result.warnings))
     return table
+
+
+def reference_table(source: str, output: str) -> Table:
+    table = Table(box=box.SIMPLE, expand=True)
+    table.add_column("Stream")
+    table.add_column("Reference")
+    table.add_row("Source", sanitize_reference(source))
+    table.add_row("Output", sanitize_reference(output))
+    return table
+
+
+def sanitize_reference(value: str) -> str:
+    parts = urlsplit(value)
+    if not parts.scheme or not parts.netloc:
+        return value
+    netloc = parts.netloc
+    if "@" in netloc:
+        credentials, host = netloc.rsplit("@", 1)
+        username = credentials.split(":", 1)[0]
+        netloc = f"{username}:<redacted>@{host}"
+    query = ""
+    if parts.query:
+        query = "&".join(f"{quote(key)}=<redacted>" for key, _ in parse_qsl(parts.query, keep_blank_values=True))
+    return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
 
 
 def health_table(items: list[PipeHealth]) -> Table:
