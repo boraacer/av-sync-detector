@@ -146,6 +146,33 @@ def test_history_treats_held_offset_as_current():
     assert "current unknown" not in text
 
 
+def test_history_chart_is_taller_than_one_line():
+    text = history_text(
+        [(-300.0, 1.0), (-120.0, 2.0), (0.0, 3.0), (120.0, 4.0), (300.0, 5.0)],
+        current_offset_ms=300.0,
+        runtime_s=5.0,
+        chart_width=5,
+        chart_height=4,
+    ).plain
+
+    lines = text.splitlines()
+    assert len(lines) == 5
+    assert lines[-1] == "latest +300ms"
+
+
+def test_history_chart_uses_requested_width_when_enough_points_exist():
+    text = history_text(
+        [(float(i), float(i)) for i in range(80)],
+        current_offset_ms=79.0,
+        runtime_s=80.0,
+        chart_width=40,
+        chart_height=4,
+    ).plain
+
+    chart_lines = text.splitlines()[:4]
+    assert all(len(line) == 40 for line in chart_lines)
+
+
 def test_sanitize_reference_redacts_secret_url_parts():
     text = sanitize_reference("https://user:secret@example.test/live/stream.m3u8?token=abc123&rendition=main")
 

@@ -26,9 +26,10 @@ def run_tui(source: str, output: str, *, label: str | None, options: LiveOptions
             while True:
                 runtime_s = time.time() - started
                 result = analyzer.estimate()
+                display_width = _live_display_width(live)
                 if result.av_offset_ms is not None:
                     history.append((result.av_offset_ms, runtime_s))
-                    history = history[-60:]
+                    history = history[-_history_retention(display_width) :]
                 live.update(
                     render_dashboard(
                         result,
@@ -38,6 +39,7 @@ def run_tui(source: str, output: str, *, label: str | None, options: LiveOptions
                         history=history,
                         source=source,
                         output=output,
+                        display_width=display_width,
                     )
                 )
                 time.sleep(refresh_s)
@@ -56,6 +58,7 @@ def render_dashboard(
     history: list[tuple[float, float]],
     source: str | None = None,
     output: str | None = None,
+    display_width: int | None = None,
 ) -> Group:
     title = "Live AV Sync Detector" if not label else f"Live AV Sync Detector - {label}"
     panels = [
@@ -64,7 +67,16 @@ def render_dashboard(
     panels.extend(
         [
         Panel(metric_table(result), title="Alignment", border_style=verdict_color(result.verdict)),
-        Panel(history_text(history, current_offset_ms=result.av_offset_ms, runtime_s=runtime_s), title="Offset History", border_style="cyan"),
+        Panel(
+            history_text(
+                history,
+                current_offset_ms=result.av_offset_ms,
+                runtime_s=runtime_s,
+                chart_width=_history_chart_width(display_width),
+            ),
+            title="Offset History",
+            border_style="cyan",
+        ),
         Panel(health_table(health), title="Decode Health", border_style="blue"),
         ]
     )
@@ -150,26 +162,45 @@ def history_text(
     *,
     current_offset_ms: float | None = None,
     runtime_s: float | None = None,
+    chart_width: int = 80,
+    chart_height: int = 4,
 ) -> Text:
     if not history:
         return Text("waiting for enough matched content", style="dim")
-    chars = "▁▂▃▄▅▆▇█"
     offsets = [_history_offset(item) for item in history]
     max_abs = max(250.0, max(abs(v) for v in offsets))
+    chart_width = max(8, int(chart_width))
+    chart_height = max(2, int(chart_height))
+    visible_offsets = _sample_history_offsets(offsets, chart_width)
     text = Text()
-    for value in offsets:
-        level = min(len(chars) - 1, int(abs(value) / max_abs * (len(chars) - 1)))
-        style = "green" if abs(value) <= 120 else "yellow" if abs(value) <= 250 else "red"
-        text.append(chars[level], style=style)
-    latest = offsets[-1]
+    for row in range(chart_height):
+        threshold = max_abs * (chart_height - row) / chart_height
+        for value in visible_offsets:
+            if abs(value) >= threshold:
+                text.append("█", style=_offset_style(value))
+            else:
+                text.append(" ")
+        text.append("\n")
+    latest = visible_offsets[-1]
     latest_style = verdict_color("aligned" if abs(latest) <= 120 else "warning" if abs(latest) <= 250 else "out_of_sync")
     latest_runtime = _history_runtime(history[-1])
     if current_offset_ms is None and runtime_s is not None and latest_runtime is not None:
         age_s = max(0.0, runtime_s - latest_runtime)
-        text.append(f"  last {latest:+.0f}ms {age_s:.0f}s ago; current unknown", style=latest_style)
+        text.append(f"last {latest:+.0f}ms {age_s:.0f}s ago; current unknown", style=latest_style)
     else:
-        text.append(f"  latest {latest:+.0f}ms", style=latest_style)
+        text.append(f"latest {latest:+.0f}ms", style=latest_style)
     return text
+
+
+def _sample_history_offsets(offsets: list[float], width: int) -> list[float]:
+    if len(offsets) <= width:
+        return offsets[-width:]
+    start = len(offsets) - width
+    return offsets[start:]
+
+
+def _offset_style(value: float) -> str:
+    return "green" if abs(value) <= 120 else "yellow" if abs(value) <= 250 else "red"
 
 
 def _history_offset(item: float | tuple[float, float]) -> float:
@@ -178,6 +209,22 @@ def _history_offset(item: float | tuple[float, float]) -> float:
 
 def _history_runtime(item: float | tuple[float, float]) -> float | None:
     return item[1] if isinstance(item, tuple) else None
+
+
+def _history_chart_width(display_width: int | None) -> int:
+    if display_width is None:
+        return 80
+    return max(20, display_width - 8)
+
+
+def _history_retention(display_width: int | None) -> int:
+    return max(120, _history_chart_width(display_width))
+
+
+def _live_display_width(live: Live) -> int | None:
+    console = getattr(live, "console", None)
+    size = getattr(console, "size", None)
+    return getattr(size, "width", None)
 
 
 def verdict_color(verdict: str) -> str:
