@@ -135,6 +135,17 @@ def test_history_marks_previous_offset_stale_when_current_result_is_unknown():
     assert "latest" not in text
 
 
+def test_history_treats_held_offset_as_current():
+    text = history_text(
+        [(20.0, 43.0)],
+        current_offset_ms=20.0,
+        runtime_s=118.0,
+    ).plain
+
+    assert "latest +20ms" in text
+    assert "current unknown" not in text
+
+
 def test_sanitize_reference_redacts_secret_url_parts():
     text = sanitize_reference("https://user:secret@example.test/live/stream.m3u8?token=abc123&rendition=main")
 
