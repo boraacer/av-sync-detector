@@ -17,6 +17,17 @@ def test_json_subcommand_requires_only_source_and_output():
     assert args.fail_on_bad is False
 
 
+def test_tui_is_default_command():
+    parser = build_parser()
+
+    args = parser.parse_args(["--source", "http://source.test/live", "--output", "http://output.test/live"])
+
+    assert args.command == "tui"
+    assert args.source == "http://source.test/live"
+    assert args.output == "http://output.test/live"
+    assert args.refresh == 3
+
+
 def test_result_json_reports_alignment_not_latency_as_verdict():
     result = AlignmentResult(
         verdict="aligned",

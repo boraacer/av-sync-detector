@@ -9,9 +9,17 @@ from .live import LiveOptions, run_live_analysis
 from .result import AlignmentResult
 
 
+class DefaultTuiParser(argparse.ArgumentParser):
+    def parse_known_args(self, args: list[str] | None = None, namespace: argparse.Namespace | None = None):
+        arg_list = list(sys.argv[1:] if args is None else args)
+        if arg_list and arg_list[0] not in {"json", "tui", "-h", "--help"} and arg_list[0].startswith("-"):
+            arg_list.insert(0, "tui")
+        return super().parse_known_args(arg_list, namespace)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="avsync-detector", description="Live A/V alignment detector using content similarity.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser = DefaultTuiParser(prog="avsync-detector", description="Live A/V alignment detector using content similarity.")
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=argparse.ArgumentParser)
 
     json_parser = sub.add_parser("json", help="Run once and print one JSON result.")
     add_common_args(json_parser)

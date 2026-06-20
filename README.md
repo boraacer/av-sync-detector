@@ -142,10 +142,12 @@ for `out_of_sync` or `inconclusive`.
 Use TUI mode for live interactive checks:
 
 ```bash
-avsync-detector tui \
+avsync-detector \
   --source "https://example.com/source/index.m3u8" \
   --output "https://example.com/output/index.m3u8"
 ```
+
+The explicit `tui` subcommand is still accepted, but it is not required.
 
 The TUI shows:
 
