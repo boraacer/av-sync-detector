@@ -57,7 +57,7 @@ def render_dashboard(
 ) -> Group:
     title = "Live AV Sync Detector" if not label else f"Live AV Sync Detector - {label}"
     panels = [
-        Panel(header_text(result, runtime_s), title=title, border_style=verdict_color(result.verdict)),
+        Panel(header_text(result, runtime_s, source=source, output=output), title=title, border_style=verdict_color(result.verdict)),
     ]
     if source is not None and output is not None:
         panels.append(Panel(reference_table(source, output), title="References", border_style="white"))
@@ -71,7 +71,7 @@ def render_dashboard(
     return Group(*panels)
 
 
-def header_text(result: AlignmentResult, runtime_s: float) -> Text:
+def header_text(result: AlignmentResult, runtime_s: float, *, source: str | None = None, output: str | None = None) -> Text:
     text = Text()
     text.append(f"runtime {runtime_s:0.0f}s  ", style="dim")
     text.append(result.verdict.upper(), style=f"bold {verdict_color(result.verdict)}")
@@ -85,6 +85,13 @@ def header_text(result: AlignmentResult, runtime_s: float) -> Text:
         text.append(f"{prefix}audio ahead by {abs(result.av_offset_ms):.0f}ms", style=verdict_color(result.verdict))
     else:
         text.append(f"{prefix}video ahead by {abs(result.av_offset_ms):.0f}ms", style=verdict_color(result.verdict))
+    if source is not None and output is not None:
+        text.append("\n")
+        text.append("source ", style="dim")
+        text.append(sanitize_reference(source), style="cyan")
+        text.append("\n")
+        text.append("output ", style="dim")
+        text.append(sanitize_reference(output), style="cyan")
     return text
 
 

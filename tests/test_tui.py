@@ -1,6 +1,6 @@
 from avsync_detector.result import AlignmentResult
 from avsync_detector.live import PipeHealth
-from avsync_detector.tui import header_text, health_table, history_text, metric_table, reference_table, run_tui
+from avsync_detector.tui import header_text, health_table, history_text, metric_table, reference_table, render_dashboard, run_tui
 from rich.console import Console
 
 
@@ -153,3 +153,38 @@ def test_reference_table_shows_sanitized_source_and_output_links():
     assert "abc123" not in text
     assert "private" not in text
     assert "secret" not in text
+
+
+def test_dashboard_puts_references_in_top_status_panel():
+    result = AlignmentResult(
+        verdict="inconclusive",
+        direction="unknown",
+        av_offset_ms=None,
+        audio_latency_s=None,
+        video_latency_s=None,
+        latency_mean_s=None,
+        audio_confidence=0,
+        video_confidence=0,
+        overall_confidence=0,
+        warnings=[],
+    )
+    console = Console(record=True, width=140, color_system=None)
+
+    console.print(
+        render_dashboard(
+            result,
+            [],
+            label=None,
+            runtime_s=12,
+            history=[],
+            source="https://source.test/live.m3u8?token=abc123",
+            output="https://output.test/live.m3u8?signature=private",
+        )
+    )
+
+    text = console.export_text()
+    header_start = text.index("runtime 12s")
+    alignment_start = text.index("Alignment")
+    header_block = text[header_start:alignment_start]
+    assert "source https://source.test/live.m3u8?token=<redacted>" in header_block
+    assert "output https://output.test/live.m3u8?signature=<redacted>" in header_block
