@@ -80,7 +80,7 @@ On Windows, use `py -3 --version` if `python` is not mapped.
 macOS / Linux:
 
 ```bash
-git clone <your-repo-url> av-sync-detector
+git clone https://github.com/boraacer/av-sync-detector.git av-sync-detector
 cd av-sync-detector
 python3 -m venv .venv
 source .venv/bin/activate
@@ -91,7 +91,7 @@ python -m pip install -e ".[dev]"
 Windows PowerShell:
 
 ```powershell
-git clone <your-repo-url> av-sync-detector
+git clone https://github.com/boraacer/av-sync-detector.git av-sync-detector
 cd av-sync-detector
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -108,7 +108,7 @@ pytest -q
 
 ### Directly From GitHub
 
-After you publish the repo, users can install from GitHub:
+Install from GitHub:
 
 ```bash
 python -m pip install "git+https://github.com/boraacer/av-sync-detector.git"
@@ -148,6 +148,8 @@ avsync-detector \
 ```
 
 The explicit `tui` subcommand is still accepted, but it is not required.
+
+![AV Sync Detector TUI screenshot](docs/assets/tui-screenshot.svg)
 
 The TUI shows:
 
