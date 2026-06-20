@@ -1,12 +1,45 @@
 # AV Sync Detector
 
-Live A/V sync detector for comparing a source stream URL with an output stream
-URL using content fingerprints instead of timestamps.
+![AV Sync Detector TUI screenshot](docs/assets/tui-screenshot.svg)
 
-It is built for checking whether a transcoder, packager, or distribution server
-has introduced audio/video drift. It does not record media to disk. It keeps
-rolling audio/video fingerprints in memory and reports whether the source and
-output are aligned.
+Live A/V sync detector for comparing a source stream URL with an output stream
+URL using content fingerprints instead of timestamps. It is built for checking
+whether a transcoder, packager, or distribution server has introduced
+audio/video drift without trusting timing metadata.
+
+It does not record media to disk. It keeps rolling audio and video
+fingerprints in memory and reports whether the source and output are aligned.
+
+## Quick Start
+
+Interactive TUI check:
+
+```bash
+avsync-detector \
+  --source "https://example.com/source/index.m3u8" \
+  --output "https://example.com/output/index.m3u8"
+```
+
+One-shot JSON check:
+
+```bash
+avsync-detector json \
+  --source "https://example.com/source/index.m3u8" \
+  --output "https://example.com/output/index.m3u8" \
+  --duration 70
+```
+
+## Table of Contents
+
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [What It Measures](#what-it-measures)
+- [Usage](#usage)
+- [Important Runtime Notes](#important-runtime-notes)
+- [Options](#options)
+- [How It Works](#how-it-works)
+- [Development](#development)
+- [License](#license)
 
 ## What It Measures
 
@@ -149,8 +182,6 @@ avsync-detector \
 
 The explicit `tui` subcommand is still accepted, but it is not required.
 
-![AV Sync Detector TUI screenshot](docs/assets/tui-screenshot.svg)
-
 The TUI shows:
 
 - A/V offset and direction
@@ -240,5 +271,4 @@ docs/                  user and algorithm documentation
 
 ## License
 
-No license has been selected yet. Add a license before publishing if you want
-other people to reuse, modify, or redistribute the code.
+This repository is available under the MIT License. See [LICENSE](LICENSE).
