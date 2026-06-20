@@ -47,6 +47,7 @@ def test_result_json_reports_alignment_not_latency_as_verdict():
     assert payload["verdict"] == "aligned"
     assert payload["direction"] == "aligned"
     assert payload["av_offset_ms"] == 40.0
+    assert payload["average_av_offset_ms"] == 40.0
     assert payload["latency"]["mean_s"] == 31.22
     assert "stream" not in payload
     json.dumps(payload)

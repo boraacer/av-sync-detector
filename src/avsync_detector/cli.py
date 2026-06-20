@@ -84,6 +84,7 @@ def result_to_json_dict(result: AlignmentResult, *, duration_s: float, label: st
         "verdict": result.verdict,
         "direction": result.direction,
         "av_offset_ms": result.av_offset_ms,
+        "average_av_offset_ms": result.av_offset_ms,
         "latency": {
             "audio_s": result.audio_latency_s,
             "video_s": result.video_latency_s,
